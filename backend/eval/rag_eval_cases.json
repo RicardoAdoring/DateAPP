@@ -1,0 +1,167 @@
+[
+  {
+    "id": "dali_sunset_easy_photo",
+    "destination": "大理",
+    "preferences": ["自然风景", "拍照", "美食"],
+    "pace": "轻松",
+    "special_notes": "不想太早起床，希望安排一个适合看日落的地点。",
+    "top_k": 5,
+    "expected_title_keywords": ["行程", "大理古城", "洱海", "双廊"],
+    "required_content_keywords": ["大理", "洱海", "双廊", "傍晚", "慢节奏"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "dali_culture_slow_trip",
+    "destination": "大理",
+    "preferences": ["古镇", "文化体验", "慢节奏"],
+    "pace": "轻松",
+    "special_notes": "想体验白族文化，不想安排太赶。",
+    "top_k": 5,
+    "expected_title_keywords": ["喜洲", "大理古城", "行程", "目的地简介"],
+    "required_content_keywords": ["白族", "喜洲", "大理古城", "慢节奏"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "dali_food_budget",
+    "destination": "大理",
+    "preferences": ["美食", "预算", "小吃"],
+    "pace": "适中",
+    "special_notes": "希望了解当地特色餐饮和大概花费。",
+    "top_k": 5,
+    "expected_title_keywords": ["餐饮", "预算"],
+    "required_content_keywords": ["野生菌火锅", "喜洲粑粑", "人均预算"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "chengdu_panda_relax",
+    "destination": "成都",
+    "preferences": ["熊猫", "美食", "休闲"],
+    "pace": "轻松",
+    "special_notes": "带父母出行，不想太累，想看大熊猫。",
+    "top_k": 5,
+    "expected_title_keywords": ["大熊猫", "行程", "宽窄巷子"],
+    "required_content_keywords": ["大熊猫", "宽窄巷子", "火锅", "慢生活"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "chengdu_food_deep",
+    "destination": "成都",
+    "preferences": ["美食", "小吃", "火锅"],
+    "pace": "适中",
+    "special_notes": "是个吃货，想把成都特色美食都尝一遍。",
+    "top_k": 5,
+    "expected_title_keywords": ["餐饮", "宽窄巷子", "行程"],
+    "required_content_keywords": ["火锅", "串串香", "担担面", "兔头", "人均预算"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "chengdu_dujiangyan_nature",
+    "destination": "成都",
+    "preferences": ["自然风景", "徒步", "文化"],
+    "pace": "适中",
+    "special_notes": "想去都江堰和青城山，喜欢户外徒步。",
+    "top_k": 5,
+    "expected_title_keywords": ["都江堰", "青城山", "行程"],
+    "required_content_keywords": ["都江堰", "青城山", "道教", "徒步", "水利工程"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xian_history_culture",
+    "destination": "西安",
+    "preferences": ["历史", "文化", "古迹"],
+    "pace": "适中",
+    "special_notes": "对历史文化很感兴趣，想深度了解古都文化。",
+    "top_k": 5,
+    "expected_title_keywords": ["兵马俑", "城墙", "历史博物馆", "行程"],
+    "required_content_keywords": ["兵马俑", "城墙", "玄奘", "历史", "唐代"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xian_food_night",
+    "destination": "西安",
+    "preferences": ["美食", "小吃", "夜市"],
+    "pace": "适中",
+    "special_notes": "想逛回民街，吃遍西安特色小吃。",
+    "top_k": 5,
+    "expected_title_keywords": ["回民街", "餐饮", "行程"],
+    "required_content_keywords": ["肉夹馍", "羊肉泡馍", "biangbiang面", "回民街"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xian_family_study",
+    "destination": "西安",
+    "preferences": ["亲子", "研学", "文化"],
+    "pace": "轻松",
+    "special_notes": "带孩子去，希望有教育意义，不要太赶。",
+    "top_k": 5,
+    "expected_title_keywords": ["兵马俑", "历史博物馆", "行程"],
+    "required_content_keywords": ["兵马俑", "博物馆", "讲解", "历史"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xiamen_couple_relax",
+    "destination": "厦门",
+    "preferences": ["海岛", "文艺", "美食"],
+    "pace": "轻松",
+    "special_notes": "和对象一起去，想去鼓浪屿和有情调的地方。",
+    "top_k": 5,
+    "expected_title_keywords": ["鼓浪屿", "行程", "曾厝垵"],
+    "required_content_keywords": ["鼓浪屿", "文艺", "沙茶面", "咖啡"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xiamen_photo_culture",
+    "destination": "厦门",
+    "preferences": ["拍照", "文化", "建筑"],
+    "pace": "适中",
+    "special_notes": "喜欢拍照，想打卡厦门大学和南普陀寺。",
+    "top_k": 5,
+    "expected_title_keywords": ["厦门大学", "南普陀", "鼓浪屿"],
+    "required_content_keywords": ["厦门大学", "南普陀寺", "芙蓉隧道", "拍照"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "xiamen_bike_sea",
+    "destination": "厦门",
+    "preferences": ["骑行", "海景", "休闲"],
+    "pace": "轻松",
+    "special_notes": "想在海边骑车，看日落，放松一下。",
+    "top_k": 5,
+    "expected_title_keywords": ["环岛路", "行程", "曾厝垵"],
+    "required_content_keywords": ["环岛路", "骑行", "日落", "海滩"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "sanya_beach_resort",
+    "destination": "三亚",
+    "preferences": ["海滩", "度假", "放松"],
+    "pace": "轻松",
+    "special_notes": "想住好酒店，泡沙滩，什么都不干。",
+    "top_k": 5,
+    "expected_title_keywords": ["亚龙湾", "行程", "蜈支洲"],
+    "required_content_keywords": ["亚龙湾", "沙滩", "酒店", "潜水"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "sanya_family_kid",
+    "destination": "三亚",
+    "preferences": ["亲子", "水上乐园", "海洋"],
+    "pace": "轻松",
+    "special_notes": "带小孩去，想玩水世界和看海洋动物。",
+    "top_k": 5,
+    "expected_title_keywords": ["亚特兰蒂斯", "蜈支洲", "行程"],
+    "required_content_keywords": ["亚特兰蒂斯", "水世界", "水族馆", "亲子"],
+    "noise_title_keywords": ["文档开头"]
+  },
+  {
+    "id": "sanya_seafood_culture",
+    "destination": "三亚",
+    "preferences": ["美食", "海鲜", "文化"],
+    "pace": "适中",
+    "special_notes": "想吃新鲜海鲜，也想去南山寺看看。",
+    "top_k": 5,
+    "expected_title_keywords": ["餐饮", "南山", "行程"],
+    "required_content_keywords": ["海鲜", "南山", "观音", "椰子鸡"],
+    "noise_title_keywords": ["文档开头"]
+  }
+]

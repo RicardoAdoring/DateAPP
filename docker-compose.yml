@@ -1,0 +1,107 @@
+name: trip-planner-demo
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: ${NODE_VERSION:-20.19.0}
+        NODE_DIST_BASE: ${NODE_DIST_BASE:-https://nodejs.org/dist}
+    environment:
+      PLANNER_LLM_PROVIDER: ${PLANNER_LLM_PROVIDER:-openai_compatible}
+      PLANNER_LLM_API_KEY: ${PLANNER_LLM_API_KEY:-${LLM_API_KEY:-}}
+      PLANNER_LLM_MODEL: ${PLANNER_LLM_MODEL:-deepseek-v4-flash}
+      PLANNER_LLM_BASE_URL: ${PLANNER_LLM_BASE_URL:-https://api.deepseek.com}
+      PLANNER_LLM_TIMEOUT_SECONDS: ${PLANNER_LLM_TIMEOUT_SECONDS:-60}
+      PLANNER_LLM_MAX_RETRIES: ${PLANNER_LLM_MAX_RETRIES:-1}
+      QUERY_REWRITE_LLM_PROVIDER: ${QUERY_REWRITE_LLM_PROVIDER:-openai_compatible}
+      QUERY_REWRITE_LLM_API_KEY: ${QUERY_REWRITE_LLM_API_KEY:-${PLANNER_LLM_API_KEY:-${LLM_API_KEY:-}}}
+      QUERY_REWRITE_LLM_MODEL: ${QUERY_REWRITE_LLM_MODEL:-${PLANNER_LLM_MODEL:-deepseek-v4-flash}}
+      QUERY_REWRITE_LLM_BASE_URL: ${QUERY_REWRITE_LLM_BASE_URL:-${PLANNER_LLM_BASE_URL:-https://api.deepseek.com}}
+      QUERY_REWRITE_LLM_TIMEOUT_SECONDS: ${QUERY_REWRITE_LLM_TIMEOUT_SECONDS:-60}
+      QUERY_REWRITE_LLM_MAX_RETRIES: ${QUERY_REWRITE_LLM_MAX_RETRIES:-1}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+      CHROMA_DB_DIR: ${CHROMA_DB_DIR:-/app/db/chroma_db}
+      CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME:-travel_guides}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-dashscope}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-v4}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-10}
+      RERANK_PROVIDER: ${RERANK_PROVIDER:-dashscope}
+      RERANK_API_KEY: ${RERANK_API_KEY:-}
+      RERANK_BASE_URL: ${RERANK_BASE_URL:-https://dashscope.aliyuncs.com/compatible-api/v1}
+      RERANK_MODEL: ${RERANK_MODEL:-qwen3-rerank}
+      RERANK_TIMEOUT_SECONDS: ${RERANK_TIMEOUT_SECONDS:-30}
+      REDIS_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+      REDIS_KEY_PREFIX: ${REDIS_KEY_PREFIX:-trip_planner}
+      REDIS_DEFAULT_TTL_SECONDS: ${REDIS_DEFAULT_TTL_SECONDS:-1800}
+      REDIS_WEATHER_TTL_SECONDS: ${REDIS_WEATHER_TTL_SECONDS:-1800}
+      REDIS_MAP_TTL_SECONDS: ${REDIS_MAP_TTL_SECONDS:-86400}
+      REDIS_RAG_TTL_SECONDS: ${REDIS_RAG_TTL_SECONDS:-21600}
+      REDIS_RERANK_TTL_SECONDS: ${REDIS_RERANK_TTL_SECONDS:-21600}
+      AMAP_API_KEY: ${AMAP_API_KEY:-}
+      AMAP_BASE_URL: ${AMAP_BASE_URL:-https://restapi.amap.com/v3}
+      AMAP_DEFAULT_CITY: ${AMAP_DEFAULT_CITY:-}
+      AMAP_TIMEOUT_SECONDS: ${AMAP_TIMEOUT_SECONDS:-20}
+      ENABLE_AMAP_ENRICHMENT: ${ENABLE_AMAP_ENRICHMENT:-false}
+      AMAP_PROVIDER: ${AMAP_PROVIDER:-mcp}
+      MCP_AMAP_COMMAND: ${MCP_AMAP_COMMAND:-mcp-amap}
+      MCP_AMAP_ARGS: ${MCP_AMAP_ARGS:-}
+      SEARCHAPI_API_KEY: ${SEARCHAPI_API_KEY:-}
+      SEARCHAPI_BASE_URL: ${SEARCHAPI_BASE_URL:-https://www.searchapi.io/api/v1/search}
+      SEARCHAPI_TIMEOUT_SECONDS: ${SEARCHAPI_TIMEOUT_SECONDS:-20}
+      SEARCHAPI_TTL_SECONDS: ${SEARCHAPI_TTL_SECONDS:-21600}
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/app/db
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: ${NODE_VERSION:-20.19.0}
+        NODE_DIST_BASE: ${NODE_DIST_BASE:-https://nodejs.org/dist}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_AMAP_JS_KEY: ${VITE_AMAP_JS_KEY:-}
+        VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend-data:
+  redis-data:
