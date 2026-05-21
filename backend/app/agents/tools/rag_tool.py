@@ -1,6 +1,18 @@
 import logging
 
+from app.agents.llm_clients import (
+    add_token_usage,
+    build_openai_compatible_chat_llm,
+    extract_token_usage,
+    response_content_text,
+)
 from app.config import (
+    OLLAMA_FALLBACK_API_KEY,
+    OLLAMA_FALLBACK_BASE_URL,
+    OLLAMA_FALLBACK_ENABLED,
+    OLLAMA_FALLBACK_MAX_RETRIES,
+    OLLAMA_FALLBACK_MODEL,
+    OLLAMA_FALLBACK_TIMEOUT_SECONDS,
     QUERY_REWRITE_LLM_API_KEY,
     QUERY_REWRITE_LLM_BASE_URL,
     QUERY_REWRITE_LLM_MAX_RETRIES,
@@ -62,31 +74,33 @@ def _extract_note_keywords(special_notes: str | None, destination: str | None = 
 
 def _build_chat_llm():
     """创建 ChatOpenAI 实例，用于 Query Rewrite。"""
-    if not QUERY_REWRITE_LLM_API_KEY:
-        return None
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        return None
-    return ChatOpenAI(
+    return build_openai_compatible_chat_llm(
         model=QUERY_REWRITE_LLM_MODEL,
-        temperature=0.2,
         api_key=QUERY_REWRITE_LLM_API_KEY,
-        base_url=QUERY_REWRITE_LLM_BASE_URL or None,
+        base_url=QUERY_REWRITE_LLM_BASE_URL,
         timeout=QUERY_REWRITE_LLM_TIMEOUT_SECONDS,
         max_retries=QUERY_REWRITE_LLM_MAX_RETRIES,
+        temperature=0.2,
+    )
+
+
+def _build_ollama_fallback_llm():
+    """创建 Ollama OpenAI-compatible fallback 实例，用于 Query Rewrite。"""
+    if not OLLAMA_FALLBACK_ENABLED:
+        return None
+    return build_openai_compatible_chat_llm(
+        model=OLLAMA_FALLBACK_MODEL,
+        api_key=OLLAMA_FALLBACK_API_KEY,
+        base_url=OLLAMA_FALLBACK_BASE_URL,
+        timeout=OLLAMA_FALLBACK_TIMEOUT_SECONDS,
+        max_retries=OLLAMA_FALLBACK_MAX_RETRIES,
+        temperature=0.2,
     )
 
 
 def _extract_token_usage(response) -> dict[str, int]:
     """从 LangChain AIMessage 中提取 token 使用量。"""
-    usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    metadata = getattr(response, "response_metadata", None) or {}
-    token_usage = metadata.get("token_usage", {})
-    if token_usage:
-        usage["prompt_tokens"] = token_usage.get("prompt_tokens", 0)
-        usage["completion_tokens"] = token_usage.get("completion_tokens", 0)
-    return usage
+    return extract_token_usage(response)
 
 
 def llm_rewrite_query(
@@ -120,26 +134,57 @@ def llm_rewrite_query(
         parts.append(f"备注：{special_notes}")
     human_prompt = "\n".join(parts)
 
-    try:
-        response = llm.invoke([
-            ("system", system_prompt),
-            ("human", human_prompt),
-        ])
-        token_usage = _extract_token_usage(response)
-        raw_text = getattr(response, "content", "")
-        if isinstance(raw_text, list):
-            raw_text = "".join(
-                item.get("text", "") if isinstance(item, dict) else str(item)
-                for item in raw_text
+    messages = [
+        ("system", system_prompt),
+        ("human", human_prompt),
+    ]
+    total_usage = dict(empty_usage)
+    fallback_tried = False
+    attempts = [("DeepSeek", llm)]
+
+    while attempts:
+        provider_name, current_llm = attempts.pop(0)
+        try:
+            response = current_llm.invoke(messages)
+        except Exception:
+            logger.warning(
+                "llm_rewrite_query failed with %s, trying fallback if available",
+                provider_name,
+                exc_info=True,
             )
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    logger.info("llm_rewrite_query: trying Ollama fallback")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        token_usage = _extract_token_usage(response)
+        total_usage = add_token_usage(total_usage, token_usage)
+        raw_text = response_content_text(response)
         query = raw_text.strip()
         if query:
-            logger.info("llm_rewrite_query: input=%s -> output=%s", human_prompt, query)
-            return query, token_usage
-    except Exception:
-        logger.warning("llm_rewrite_query failed, falling back to rule-based", exc_info=True)
+            logger.info(
+                "llm_rewrite_query: provider=%s input=%s -> output=%s",
+                provider_name,
+                human_prompt,
+                query,
+            )
+            return query, total_usage
 
-    return None, empty_usage
+        logger.warning("llm_rewrite_query returned empty output from %s", provider_name)
+        if not fallback_tried:
+            fallback_tried = True
+            fallback_llm = _build_ollama_fallback_llm()
+            if fallback_llm is not None:
+                logger.info("llm_rewrite_query: trying Ollama fallback for empty output")
+                attempts.append(("Ollama", fallback_llm))
+                continue
+        return None, total_usage
+
+    return None, total_usage
 
 
 def _rule_based_query(

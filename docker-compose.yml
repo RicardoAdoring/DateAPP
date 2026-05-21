@@ -40,6 +40,12 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
       LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+      OLLAMA_FALLBACK_ENABLED: ${OLLAMA_FALLBACK_ENABLED:-true}
+      OLLAMA_FALLBACK_MODEL: ${OLLAMA_FALLBACK_MODEL:-qwen2.5:7b}
+      OLLAMA_FALLBACK_BASE_URL: ${OLLAMA_FALLBACK_BASE_URL:-http://host.docker.internal:11434/v1}
+      OLLAMA_FALLBACK_API_KEY: ${OLLAMA_FALLBACK_API_KEY:-ollama}
+      OLLAMA_FALLBACK_TIMEOUT_SECONDS: ${OLLAMA_FALLBACK_TIMEOUT_SECONDS:-20}
+      OLLAMA_FALLBACK_MAX_RETRIES: ${OLLAMA_FALLBACK_MAX_RETRIES:-0}
       CHROMA_DB_DIR: ${CHROMA_DB_DIR:-/app/db/chroma_db}
       CHROMA_COLLECTION_NAME: ${CHROMA_COLLECTION_NAME:-travel_guides}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-dashscope}
@@ -76,6 +82,8 @@ services:
       - "8000:8000"
     volumes:
       - backend-data:/app/db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       redis:
         condition: service_healthy

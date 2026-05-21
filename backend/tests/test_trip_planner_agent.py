@@ -169,6 +169,110 @@ def test_generate_planner_draft_returns_structured_result_with_mock_llm(monkeypa
     }
 
 
+def test_generate_planner_draft_falls_back_to_ollama_when_primary_fails(monkeypatch) -> None:
+    """测试 DeepSeek 调用异常时会自动尝试 Ollama fallback。"""
+
+    class FakeResponse:
+        def __init__(self, content):
+            self.content = content
+            self.response_metadata = {
+                "token_usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 6,
+                }
+            }
+
+    expected_result = build_planner_draft(day_count=3)
+    init_kwargs: list[dict] = []
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            init_kwargs.append(kwargs)
+
+        def invoke(self, messages):
+            if self.kwargs["model"] == "deepseek-test":
+                raise RuntimeError("deepseek down")
+            return FakeResponse(expected_result.model_dump_json())
+
+    fake_module = ModuleType("langchain_openai")
+    fake_module.ChatOpenAI = FakeChatOpenAI
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_API_KEY", "test-key")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_MODEL", "deepseek-test")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_BASE_URL", "https://deepseek.test")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_MAX_RETRIES", 1)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_MODEL", "qwen2.5:7b")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_API_KEY", "ollama")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_TIMEOUT_SECONDS", 20)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_MAX_RETRIES", 0)
+
+    result, usage = trip_planner_agent.generate_planner_draft(
+        request=build_trip_request(),
+        rag_contexts=["大理古城适合傍晚散步。"],
+        day_count=3,
+    )
+
+    assert result == expected_result
+    assert usage == {"prompt_tokens": 12, "completion_tokens": 6}
+    assert [item["model"] for item in init_kwargs] == ["deepseek-test", "qwen2.5:7b"]
+    assert init_kwargs[1]["base_url"] == "http://127.0.0.1:11434/v1"
+
+
+def test_generate_planner_draft_falls_back_to_ollama_when_primary_returns_bad_json(monkeypatch) -> None:
+    """测试 DeepSeek 返回不可解析内容时会自动尝试 Ollama fallback。"""
+
+    class FakeResponse:
+        def __init__(self, content, prompt_tokens, completion_tokens):
+            self.content = content
+            self.response_metadata = {
+                "token_usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                }
+            }
+
+    expected_result = build_planner_draft(day_count=3)
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke(self, messages):
+            if self.kwargs["model"] == "deepseek-test":
+                return FakeResponse("模型返回了一段非 JSON 文本", 10, 2)
+            return FakeResponse(expected_result.model_dump_json(), 8, 4)
+
+    fake_module = ModuleType("langchain_openai")
+    fake_module.ChatOpenAI = FakeChatOpenAI
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_API_KEY", "test-key")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_MODEL", "deepseek-test")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_BASE_URL", "https://deepseek.test")
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_TIMEOUT_SECONDS", 60)
+    monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_MAX_RETRIES", 1)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_ENABLED", True)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_MODEL", "qwen2.5:7b")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_API_KEY", "ollama")
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_TIMEOUT_SECONDS", 20)
+    monkeypatch.setattr(trip_planner_agent, "OLLAMA_FALLBACK_MAX_RETRIES", 0)
+
+    result, usage = trip_planner_agent.generate_planner_draft(
+        request=build_trip_request(),
+        rag_contexts=["大理古城适合傍晚散步。"],
+        day_count=3,
+    )
+
+    assert result == expected_result
+    assert usage == {"prompt_tokens": 18, "completion_tokens": 6}
+
+
 def test_generate_planner_draft_builds_prompt_with_request_and_rag_context(monkeypatch) -> None:
     """测试 prompt 中包含用户请求信息和本地攻略上下文。"""
     monkeypatch.setattr(trip_planner_agent, "PLANNER_LLM_API_KEY", "test-key")

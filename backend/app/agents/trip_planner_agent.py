@@ -4,8 +4,20 @@ import json
 
 from pydantic import BaseModel, Field
 
+from app.agents.llm_clients import (
+    add_token_usage,
+    build_openai_compatible_chat_llm,
+    extract_token_usage,
+    response_content_text,
+)
 from app.agents.tools.rag_tool import get_destination_guide_context
 from app.config import (
+    OLLAMA_FALLBACK_API_KEY,
+    OLLAMA_FALLBACK_BASE_URL,
+    OLLAMA_FALLBACK_ENABLED,
+    OLLAMA_FALLBACK_MAX_RETRIES,
+    OLLAMA_FALLBACK_MODEL,
+    OLLAMA_FALLBACK_TIMEOUT_SECONDS,
     PLANNER_LLM_API_KEY,
     PLANNER_LLM_BASE_URL,
     PLANNER_LLM_MAX_RETRIES,
@@ -111,35 +123,47 @@ def collect_trip_context(
     )
 
 
-def _build_chat_llm():
+def _build_chat_llm(temperature: float = 0.3):
     """创建通用 ChatOpenAI 实例。"""
-    if not PLANNER_LLM_API_KEY:
-        return None
-
-    try:
-        from langchain_openai import ChatOpenAI
-    except ImportError:
-        return None
-
-    return ChatOpenAI(
+    return build_openai_compatible_chat_llm(
         model=PLANNER_LLM_MODEL,
-        temperature=0.3,
         api_key=PLANNER_LLM_API_KEY,
-        base_url=PLANNER_LLM_BASE_URL or None,
+        base_url=PLANNER_LLM_BASE_URL,
         timeout=PLANNER_LLM_TIMEOUT_SECONDS,
         max_retries=PLANNER_LLM_MAX_RETRIES,
+        temperature=temperature,
+    )
+
+
+def _build_ollama_fallback_llm(temperature: float = 0.3):
+    """创建 Ollama OpenAI-compatible fallback 实例。"""
+    if not OLLAMA_FALLBACK_ENABLED:
+        return None
+    return build_openai_compatible_chat_llm(
+        model=OLLAMA_FALLBACK_MODEL,
+        api_key=OLLAMA_FALLBACK_API_KEY,
+        base_url=OLLAMA_FALLBACK_BASE_URL,
+        timeout=OLLAMA_FALLBACK_TIMEOUT_SECONDS,
+        max_retries=OLLAMA_FALLBACK_MAX_RETRIES,
+        temperature=temperature,
     )
 
 
 def _extract_token_usage(response) -> dict[str, int]:
     """从 LangChain AIMessage 中提取 token 使用量。"""
-    usage = {"prompt_tokens": 0, "completion_tokens": 0}
-    metadata = getattr(response, "response_metadata", None) or {}
-    token_usage = metadata.get("token_usage", {})
-    if token_usage:
-        usage["prompt_tokens"] = token_usage.get("prompt_tokens", 0)
-        usage["completion_tokens"] = token_usage.get("completion_tokens", 0)
-    return usage
+    return extract_token_usage(response)
+
+
+def _extract_response_text(response) -> str:
+    """把模型返回内容规范化为字符串。"""
+    return response_content_text(response)
+
+
+def _fallback_message(reason: str) -> None:
+    print(
+        "[trip_planner_agent] DeepSeek 链路不可用，"
+        f"尝试调用 Ollama 本地模型。原因：{reason}"
+    )
 
 
 def generate_planner_draft(
@@ -222,48 +246,81 @@ JSON 结构示例：
     print(f"[trip_planner_agent] timeout = {PLANNER_LLM_TIMEOUT_SECONDS}s")
     print(f"[trip_planner_agent] max_retries = {PLANNER_LLM_MAX_RETRIES}")
 
-    try:
-        response = llm.invoke(
-            [
-                ("system", system_prompt),
-                ("human", human_prompt),
-            ]
-        )
-    except Exception as exc:
-        print(f"[trip_planner_agent] 大模型调用失败: {type(exc).__name__}: {exc}")
-        return None, empty_usage
+    messages = [
+        ("system", system_prompt),
+        ("human", human_prompt),
+    ]
+    total_usage = dict(empty_usage)
+    fallback_tried = False
+    attempts = [("DeepSeek", llm)]
 
-    token_usage = _extract_token_usage(response)
-    print(f"[trip_planner_agent] 大模型调用完成。token: prompt={token_usage['prompt_tokens']}, completion={token_usage['completion_tokens']}")
+    while attempts:
+        provider_name, current_llm = attempts.pop(0)
+        try:
+            response = current_llm.invoke(messages)
+        except Exception as exc:
+            print(f"[trip_planner_agent] {provider_name} 调用失败: {type(exc).__name__}: {exc}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 调用异常")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
 
-    raw_text = getattr(response, "content", "")
-    if isinstance(raw_text, list):
-        raw_text = "".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in raw_text
-        )
-
-    json_text = _extract_json_object(str(raw_text))
-    if json_text is None:
-        print("[trip_planner_agent] 未能从模型返回中提取 JSON。")
-        print(f"[trip_planner_agent] 原始返回预览: {str(raw_text)[:300]}")
-        return None, token_usage
-
-    try:
-        result = PlannerDraft.model_validate(json.loads(json_text))
-    except Exception as exc:
-        print(f"[trip_planner_agent] JSON 解析失败: {type(exc).__name__}: {exc}")
-        print(f"[trip_planner_agent] 原始返回预览: {str(raw_text)[:300]}")
-        return None, token_usage
-
-    if len(result.days) != day_count:
+        token_usage = _extract_token_usage(response)
+        total_usage = add_token_usage(total_usage, token_usage)
         print(
-            "[trip_planner_agent] 结构化结果天数不匹配，"
-            f"expected={day_count}, actual={len(result.days)}"
+            f"[trip_planner_agent] {provider_name} 调用完成。"
+            f"token: prompt={token_usage['prompt_tokens']}, completion={token_usage['completion_tokens']}"
         )
-        return None, token_usage
 
-    return result, token_usage
+        raw_text = _extract_response_text(response)
+        json_text = _extract_json_object(raw_text)
+        if json_text is None:
+            print(f"[trip_planner_agent] 未能从 {provider_name} 返回中提取 JSON。")
+            print(f"[trip_planner_agent] 原始返回预览: {raw_text[:300]}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 返回非 JSON 内容")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        try:
+            result = PlannerDraft.model_validate(json.loads(json_text))
+        except Exception as exc:
+            print(f"[trip_planner_agent] {provider_name} JSON 解析失败: {type(exc).__name__}: {exc}")
+            print(f"[trip_planner_agent] 原始返回预览: {raw_text[:300]}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} JSON 解析失败")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        if len(result.days) != day_count:
+            print(
+                f"[trip_planner_agent] {provider_name} 结构化结果天数不匹配，"
+                f"expected={day_count}, actual={len(result.days)}"
+            )
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 返回天数不匹配")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        return result, total_usage
+
+    return None, total_usage
 
 
 def generate_day_edit_draft(
@@ -332,40 +389,66 @@ JSON 结构示例：
     print(f"[trip_planner_agent] model = {PLANNER_LLM_MODEL}")
     print(f"[trip_planner_agent] base_url = {PLANNER_LLM_BASE_URL or '<DEFAULT>'}")
 
-    try:
-        response = llm.invoke(
-            [
-                ("system", system_prompt),
-                ("human", human_prompt),
-            ]
+    messages = [
+        ("system", system_prompt),
+        ("human", human_prompt),
+    ]
+    total_usage = dict(empty_usage)
+    fallback_tried = False
+    attempts = [("DeepSeek", llm)]
+
+    while attempts:
+        provider_name, current_llm = attempts.pop(0)
+        try:
+            response = current_llm.invoke(messages)
+        except Exception as exc:
+            print(f"[trip_planner_agent] {provider_name} 单日编辑调用失败: {type(exc).__name__}: {exc}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 单日编辑调用异常")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        token_usage = _extract_token_usage(response)
+        total_usage = add_token_usage(total_usage, token_usage)
+        print(
+            f"[trip_planner_agent] {provider_name} 单日编辑调用完成。"
+            f"token: prompt={token_usage['prompt_tokens']}, completion={token_usage['completion_tokens']}"
         )
-    except Exception as exc:
-        print(f"[trip_planner_agent] 单日编辑调用失败: {type(exc).__name__}: {exc}")
-        return None, empty_usage
 
-    token_usage = _extract_token_usage(response)
-    print(f"[trip_planner_agent] 单日编辑调用完成。token: prompt={token_usage['prompt_tokens']}, completion={token_usage['completion_tokens']}")
+        raw_text = _extract_response_text(response)
+        json_text = _extract_json_object(raw_text)
+        if json_text is None:
+            print(f"[trip_planner_agent] 未能从 {provider_name} 单日编辑结果中提取 JSON。")
+            print(f"[trip_planner_agent] 原始返回预览: {raw_text[:300]}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 单日编辑返回非 JSON 内容")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
 
-    raw_text = getattr(response, "content", "")
-    if isinstance(raw_text, list):
-        raw_text = "".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in raw_text
-        )
+        try:
+            payload = json.loads(json_text)
+            if not isinstance(payload, dict):
+                raise ValueError("单日编辑结果不是 JSON 对象。")
+            normalized_payload = _normalize_day_edit_payload(payload)
+            return DayEditDraft.model_validate(normalized_payload), total_usage
+        except Exception as exc:
+            print(f"[trip_planner_agent] {provider_name} 单日编辑 JSON 解析失败: {type(exc).__name__}: {exc}")
+            print(f"[trip_planner_agent] 原始返回预览: {raw_text[:300]}")
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    _fallback_message(f"{provider_name} 单日编辑 JSON 解析失败")
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
 
-    json_text = _extract_json_object(str(raw_text))
-    if json_text is None:
-        print("[trip_planner_agent] 未能从单日编辑结果中提取 JSON。")
-        print(f"[trip_planner_agent] 原始返回预览: {str(raw_text)[:300]}")
-        return None, token_usage
-
-    try:
-        payload = json.loads(json_text)
-        if not isinstance(payload, dict):
-            raise ValueError("单日编辑结果不是 JSON 对象。")
-        normalized_payload = _normalize_day_edit_payload(payload)
-        return DayEditDraft.model_validate(normalized_payload), token_usage
-    except Exception as exc:
-        print(f"[trip_planner_agent] 单日编辑 JSON 解析失败: {type(exc).__name__}: {exc}")
-        print(f"[trip_planner_agent] 原始返回预览: {str(raw_text)[:300]}")
-        return None, token_usage
+    return None, total_usage

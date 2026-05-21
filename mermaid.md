@@ -52,6 +52,7 @@ flowchart TB
     AmapProvider["amap_mcp_provider.py"]
     SearchProvider["searchapi_provider.py"]
     DeepSeek["DeepSeek LLM：deepseek-v4-flash"]
+    Ollama["Ollama 本地模型：qwen2.5:7b"]
     DashEmb["DashScope Embedding"]
     DashRerank["DashScope qwen3-rerank"]
     AmapMCP["mcp-amap / 高德 MCP Server"]
@@ -62,6 +63,7 @@ flowchart TB
   DatePlanService --> AmapProvider
   DatePlanService --> SearchProvider
   PlannerAgent --> DeepSeek
+  PlannerAgent -. "DeepSeek 失败 / 非法返回" .-> Ollama
   VectorDB --> DashEmb
   Retriever --> DashRerank
   AmapProvider --> AmapMCP

@@ -8,10 +8,13 @@ from typing import Any, Awaitable, Callable
 from pydantic import BaseModel, Field
 
 from app.agents.trip_planner_agent import (
+    _build_ollama_fallback_llm,
     _build_chat_llm,
     _extract_json_object,
+    _extract_response_text,
     _extract_token_usage,
 )
+from app.agents.llm_clients import add_token_usage
 from app.models.schemas import (
     BudgetBreakdown,
     DatePlanRequest,
@@ -336,28 +339,57 @@ def _generate_llm_draft(
   ]
 }}
 """
-    try:
-        response = llm.invoke([("system", system_prompt), ("human", human_prompt)])
-    except Exception:
-        return None, empty_usage
+    messages = [("system", system_prompt), ("human", human_prompt)]
+    total_usage = dict(empty_usage)
+    fallback_tried = False
+    attempts = [("DeepSeek", llm)]
 
-    usage = _extract_token_usage(response)
-    raw_text = getattr(response, "content", "")
-    if isinstance(raw_text, list):
-        raw_text = "".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in raw_text
-        )
-    json_text = _extract_json_object(str(raw_text))
-    if json_text is None:
-        return None, usage
-    try:
-        draft = DatePlanDraft.model_validate(json.loads(json_text))
-    except Exception:
-        return None, usage
-    if not draft.stops:
-        return None, usage
-    return draft, usage
+    while attempts:
+        provider_name, current_llm = attempts.pop(0)
+        try:
+            response = current_llm.invoke(messages)
+        except Exception:
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+
+        usage = _extract_token_usage(response)
+        total_usage = add_token_usage(total_usage, usage)
+        raw_text = _extract_response_text(response)
+        json_text = _extract_json_object(raw_text)
+        if json_text is None:
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+        try:
+            draft = DatePlanDraft.model_validate(json.loads(json_text))
+        except Exception:
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+        if not draft.stops:
+            if not fallback_tried:
+                fallback_tried = True
+                fallback_llm = _build_ollama_fallback_llm()
+                if fallback_llm is not None:
+                    attempts.append(("Ollama", fallback_llm))
+                    continue
+            return None, total_usage
+        return draft, total_usage
+
+    return None, total_usage
 
 
 def _spot_cost(candidate: PoiCandidate, draft: DateStopDraft) -> float:

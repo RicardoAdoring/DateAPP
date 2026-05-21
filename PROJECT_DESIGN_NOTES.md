@@ -96,7 +96,7 @@ RAG 层用于把本地攻略知识注入规划过程，帮助 Agent 在约会安
 
 外部依赖集中在后端 Provider 层，前端不直接持有服务端密钥。
 
-- LLM Provider：使用 DeepSeek 的 OpenAI-compatible 接口，当前规划模型配置为 `deepseek-v4-flash`。
+- LLM Provider：主链路使用 DeepSeek 的 OpenAI-compatible 接口，当前规划模型配置为 `deepseek-v4-flash`；当 DeepSeek 连接失败、调用异常、返回空内容或结构化 JSON 解析失败时，自动尝试 Ollama 本地模型 fallback。
 - Embedding Provider：使用 DashScope Embedding，环境变量控制 provider、base URL、model 和 key。
 - Rerank Provider：使用 DashScope `qwen3-rerank`，失败时自动回退规则排序。
 - 高德地图 Provider：默认走 MCP，后端通过 Python `mcp` SDK 以 stdio 方式调用 `@amap/amap-maps-mcp-server@0.0.8`，覆盖地理编码、反向地理编码、文本搜索、周边搜索、POI 详情和路线估算。
@@ -122,6 +122,9 @@ Docker Compose 采用三服务结构：
 
 ```text
 PLANNER_LLM_MODEL=deepseek-v4-flash
+OLLAMA_FALLBACK_ENABLED=true
+OLLAMA_FALLBACK_MODEL=qwen2.5:7b
+OLLAMA_FALLBACK_BASE_URL=http://host.docker.internal:11434/v1
 EMBEDDING_PROVIDER=dashscope
 RERANK_PROVIDER=dashscope
 AMAP_PROVIDER=mcp
@@ -162,7 +165,7 @@ REDIS_URL=redis://redis:6379/0
 
 - 新增高德 MCP Provider，封装地理编码、反向地理编码、文本搜索、周边搜索、POI 详情和路线估算。
 - 新增 SearchApi.io Provider，使用 Google Maps / Google Search 结果补充评分、评论、图片、链接、摘要和攻略线索。
-- DeepSeek LLM、DashScope Embedding、DashScope Rerank、高德 MCP、SearchApi 均集中由后端环境变量配置。
+- DeepSeek LLM、Ollama fallback、DashScope Embedding、DashScope Rerank、高德 MCP、SearchApi 均集中由后端环境变量配置。
 - SearchApi 不可用时自动降级，高德 MCP 不可用时向接口层抛出明确错误。
 - 前端只配置浏览器端必须使用的高德 Web JS key 和安全密钥，不接触服务端 LLM、DashScope、SearchApi 密钥。
 
